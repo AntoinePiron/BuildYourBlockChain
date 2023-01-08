@@ -24,7 +24,7 @@ const sockets = [];
 // Initialisation d'une socket
 function initSocket(socket) {
   socket.on("get", function (field, callback) {
-    if (db.includes(field)) {
+    if (field in db) {
       console.info(`get ${field}: ${db[field]?.value}`);
       callback(undefined, db[field]); // lit et renvoie la valeur associée à la clef.
     } else {
@@ -42,18 +42,29 @@ function initSocket(socket) {
         date: Date.now(),
       };
     }
-    if (db.includes(field)) {
-      if (db[field].value !== value) {
+    if (field in db) {
+      // si la valeur en paramètre est plus vieille que la valeur actuelle on remplace dans la db
+      if (value.date < db[field].date) {
+        console.info(`set ${field} : ${value}`);
+        console.info(`value date : ${value.date}`);
+        console.info(`db field date : ${db[field].date}`);
+        db[field] = value;
+        sockets.forEach((s) =>
+          s.emit("set", field, value, (error) => {
+            if (error) {
+              console.error(error);
+            }
+          })
+        );
+        callback();
+      } else {
         const error = new Error(`set error : Field ${field} exists.`);
         console.info(error);
         callback(error.message);
       }
     } else {
       console.info(`set ${field} : ${value}`);
-      db[field] = {
-        value,
-        date: Date.now(), // on sauvegarde la date de création
-      };
+      db[field] = value;
       sockets.forEach((s) =>
         s.emit("set", field, value, (error) => {
           if (error) {
@@ -68,6 +79,11 @@ function initSocket(socket) {
   socket.on("keys", function (callback) {
     console.info("keys");
     callback(undefined, Object.keys(db)); // Object.keys() extrait la liste des clefs d'un object et les renvoie sous forme d'un tableau.
+  });
+
+  socket.on("keysAndTime", function (callback) {
+    console.info("keysAndTime");
+    callback(undefined, extractHorodatage(db));
   });
 
   socket.on("peers", function (callback) {
@@ -131,7 +147,7 @@ function sync(sock) {
       console.error("ERROR:", error);
     } else {
       keys.forEach((key) => {
-        if (!db.includes(key)) {
+        if (!(key in db)) {
           sock.emit("get", key, (error, value) => {
             if (error) {
               console.error("ERROR:", error);
@@ -145,3 +161,12 @@ function sync(sock) {
     }
   });
 }
+
+const extractHorodatage = function (db) {
+  return Object.keys(db).reduce(function (result, key) {
+    result[key] = {
+      date: db[key].date,
+    };
+    return result;
+  }, {});
+};
